@@ -2,7 +2,7 @@
   <img src="./frontend/static/oracle_icon.png" alt="Oracle Logo" width="200" height="auto">
 </p>
 
-# Oracle Application
+# Oracle Connector
 
 [![Checked with pyright](https://microsoft.github.io/pyright/img/pyright_badge.svg)](https://microsoft.github.io/pyright/)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)

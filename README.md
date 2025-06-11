@@ -4,18 +4,12 @@
 
 # Oracle Connector
 
-[![Checked with pyright](https://microsoft.github.io/pyright/img/pyright_badge.svg)](https://microsoft.github.io/pyright/)
-[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
-[![Tests](https://github.com/atlanhq/atlan-oracle-app/actions/workflows/unit-tests.yml/badge.svg)](https://github.com/atlanhq/atlan-oracle-app/actions/workflows/unit-tests.yml)
-
 Oracle application is designed to interact with an Oracle database and perform actions on it. The application is built using the [Atlan Python Application SDK](https://github.com/atlanhq/application-sdk) and is intended to run on the Atlan Platform.
 
 This application has two components:
 
 - FastAPI server that exposes REST API to interact with the application.
 - A workflow that runs on the Atlan platform that extracts metadata from an Oracle database, transforms it and pushes it to an object store.
-
-https://github.com/user-attachments/assets/0ce63557-7c62-4491-96b9-1134a1ceadd6
 
 ## Table of contents
 
@@ -32,8 +26,8 @@ https://github.com/user-attachments/assets/0ce63557-7c62-4491-96b9-1134a1ceadd6
 1. Clone the repository:
 
    ```bash
-   git clone https://github.com/atlanhq/atlan-oracle-app.git
-   cd atlan-oracle-app
+   https://github.com/ashraf-atlan/oracle-connector-app.git
+   cd oracle-connector-app
    ```
 
 2. Follow the setup instructions for your platform:
@@ -46,7 +40,7 @@ https://github.com/user-attachments/assets/0ce63557-7c62-4491-96b9-1134a1ceadd6
 3. Install dependencies:
 
    ```bash
-   uv sync --all-groups
+   uv sync --all-groups --all-extras
    ```
 
 4. Download required components:

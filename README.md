@@ -1,178 +1,126 @@
-# Oracle Enterprise Connector for Atlan
+<p align="center">
+  <img src="./frontend/static/oracle_icon.png" alt="Oracle Logo" width="200" height="auto">
+</p>
 
-A robust metadata extraction application for Oracle databases built using the Atlan Application SDK. This connector enables comprehensive metadata discovery and cataloging from Oracle databases into Atlan's data catalog.
+# Oracle Application
 
-## Key Features
+[![Checked with pyright](https://microsoft.github.io/pyright/img/pyright_badge.svg)](https://microsoft.github.io/pyright/)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![Tests](https://github.com/atlanhq/atlan-oracle-app/actions/workflows/unit-tests.yml/badge.svg)](https://github.com/atlanhq/atlan-oracle-app/actions/workflows/unit-tests.yml)
 
-- **Comprehensive Metadata Extraction**: Extract detailed metadata from Oracle databases including schemas, tables, views, columns, and their relationships
-- **Multiple Authentication Methods**: Support for Basic Auth, Oracle Wallet, and IAM authentication
-- **Advanced Filtering**: Flexible include/exclude patterns for schema and table selection
-- **Performance Optimized**: Parallel processing and connection pooling for large Oracle databases
-- **Robust Error Handling**: Built-in retry mechanisms and detailed error reporting
-- **Full Observability**: Comprehensive logging, metrics, and distributed tracing
-- **Enterprise Ready**: Support for Oracle Database 11g and later, including cloud deployments
+Oracle application is designed to interact with an Oracle database and perform actions on it. The application is built using the [Atlan Python Application SDK](https://github.com/atlanhq/application-sdk) and is intended to run on the Atlan Platform.
 
-## Prerequisites
+This application has two components:
 
-- Python 3.11+
-- uv (Python package manager)
-- Oracle Instant Client 19.8+
-- Docker (for local development dependencies)
-- Access to an Oracle database
+- FastAPI server that exposes REST API to interact with the application.
+- A workflow that runs on the Atlan platform that extracts metadata from an Oracle database, transforms it and pushes it to an object store.
 
-## Quick Start
+https://github.com/user-attachments/assets/0ce63557-7c62-4491-96b9-1134a1ceadd6
 
-### 1. Install Oracle Instant Client
+## Table of contents
 
-#### macOS
+- [Usage](#usage)
+- [Features](#features)
+- [Extending this application to other SQL sources](#extending-this-application-to-other-sql-sources)
+- [Development](#development)
+- [Architecture](./docs/ARCHITECTURE.md)
 
-```bash
-brew tap InstantClientTap/instantclient
-brew install instantclient-basic
-brew install instantclient-sqlplus
-```
+## Usage
 
-#### Linux (Ubuntu/Debian)
+### Setting up your environment
 
-```bash
-sudo apt-get update
-sudo apt-get install libaio1
-wget https://download.oracle.com/otn_software/linux/instantclient/instantclient-basic-linux.x64-19.16.0.0.0dbru.zip
-unzip instantclient-basic-linux.x64-19.16.0.0.0dbru.zip
-```
+1. Clone the repository:
 
-### 2. Set Environment Variables
+   ```bash
+   git clone https://github.com/atlanhq/atlan-oracle-app.git
+   cd atlan-oracle-app
+   ```
 
-```bash
-export ORACLE_HOME=/path/to/instantclient
-export LD_LIBRARY_PATH=$ORACLE_HOME:$LD_LIBRARY_PATH
-export PATH=$ORACLE_HOME:$PATH
-```
+2. Follow the setup instructions for your platform:
 
-### 3. Install Application Dependencies
+   - [Automatic Setup](./.cursor/rules/setup.mdc) - Automatically detects your OS and provides the appropriate guide
+   - [macOS Setup Guide](https://github.com/atlanhq/application-sdk/blob/main/docs/docs/setup/MAC.md)
+   - [Linux Setup Guide](https://github.com/atlanhq/application-sdk/blob/main/docs/docs/setup/LINUX.md)
+   - [Windows Setup Guide](https://github.com/atlanhq/application-sdk/blob/main/docs/docs/setup/WINDOWS.md)
 
-```bash
-uv sync --all-groups --all-extras
-```
+3. Install dependencies:
 
-### 4. Configure Environment
+   ```bash
+   uv sync --all-groups
+   ```
 
-Create a `.env` file:
+4. Download required components:
 
-```bash
-ORACLE_HOST=your-oracle-host
-ORACLE_PORT=1521
-ORACLE_USER=your_username
-ORACLE_PASSWORD=your_password
-ORACLE_DATABASE=your_service_name
-```
+   ```bash
+   uv run poe download-components
+   ```
 
-### 5. Start Dependencies
+5. Start the dependencies (in a separate terminal):
 
-```bash
-uv run poe start-deps
-```
+   ```bash
+   uv run poe start-deps
+   ```
 
-### 6. Run the Application
+6. That loads all required dependencies. To run, you just run the command in the main terminal:
+   ```bash
+   uv run main.py
+   ```
 
-```bash
-uv run python main.py
-```
+## Component Structure
+
+The project follows a simple, modular structure:
+
+- `app/`: Core application code
+  - `clients/`: Database client implementations for Oracle connectivity
+  - `sql/`: SQL query templates for metadata extraction:
+    - `client_version.sql`: Query to fetch Oracle client version
+    - `extract_column.sql`: Column metadata extraction
+    - `extract_database.sql`: Database metadata extraction
+    - `extract_schema.sql`: Schema metadata extraction
+    - `extract_table.sql`: Table metadata extraction
+    - `filter_metadata.sql`: Metadata filtering logic
+    - `tables_check.sql`: Table validation queries
+    - `test_authentication.sql`: Authentication test queries
+- `components/`: Reusable components
+- `frontend/`: Frontend assets
+- `scripts/`: Utility scripts
+- `tests/`: Test suite
+- `main.py`: Application entry point
+
+## Features
+
+1. Extract metadata from an Oracle database, transform and push to an object store
+2. FastAPI-based REST API interface
+3. OpenTelemetry integration for metrics, traces and logs
+4. Multiple authentication methods:
+   - Basic Authentication
+   - Oracle Wallet Authentication
+   - IAM Authentication
+
+### Note on Authentication Methods
+
+This application supports multiple authentication methods:
+
+1. **Basic Authentication**: Username/password authentication
+2. **Oracle Wallet Authentication**: Using Oracle Wallet for secure credential storage
+3. **IAM Authentication**: For cloud deployments
+
+For IAM authentication, tokens are generated on-demand for each connection string creation. This approach ensures:
+
+1. Fresh tokens for each new connection
+2. Immediate connection creation after token generation
+3. Proper token expiration handling
+
+## Extending this application to other SQL sources
+
+1. Make sure you add the required SQLAlchemy dialect using uv. For ex. to add MySQL dialect, `uv add mysql-connector-python`
+2. Update SQL queries in [`sql`](app/sql) directory
+3. Update the DB_CONFIG in the [`app/clients`](app/clients) directory
+4. Run the application using the development guide
+5. Update the tests in the [`tests`](tests) directory
 
 ## Development
 
-### Project Structure
-
-```
-.
-├── app/                    # Core application code
-│   ├── activities/        # Metadata extraction activities
-│   ├── clients/          # Oracle database client
-│   ├── handlers/         # Request handlers
-│   ├── transformers/     # Data transformers
-│   └── workflows/        # Workflow definitions
-├── docs/                  # Documentation
-├── tests/                 # Test suite
-└── frontend/             # UI components
-```
-
-### Running Tests
-
-```bash
-# Unit tests
-uv run pytest tests/unit
-
-# Integration tests
-uv run pytest tests/integration
-
-# All tests with coverage
-uv run pytest --cov=app tests/
-```
-
-### Code Quality
-
-```bash
-# Run all pre-commit hooks
-uv run pre-commit run --all-files
-
-# Run specific checks
-uv run ruff check .
-uv run black .
-uv run mypy .
-```
-
-## Configuration
-
-### Authentication Methods
-
-1. **Basic Authentication**
-
-```python
-credentials = {
-    "authType": "basic",
-    "username": "user",
-    "password": "pass",
-    "host": "host",
-    "port": 1521,
-    "database": "service_name"
-}
-```
-
-2. **Oracle Wallet**
-
-```python
-credentials = {
-    "authType": "wallet",
-    "wallet_location": "/path/to/wallet",
-    "wallet_password": "password",
-    "service_name": "service_name"
-}
-```
-
-### Metadata Extraction Filters
-
-```python
-metadata_config = {
-    "exclude-filter": "^(TEMP_|TEST_).*",  # Exclude temp/test schemas
-    "include-filter": ".*",                # Include all schemas
-    "temp-table-regex": "^TMP_.*",        # Exclude temporary tables
-    "exclude_views": "false",             # Include views
-    "exclude_empty_tables": "true"        # Skip empty tables
-}
-```
-
-## Troubleshooting
-
-See [ORACLE_SETUP.md](ORACLE_SETUP.md) for detailed troubleshooting steps and common issues.
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Run tests and quality checks
-5. Submit a pull request
-
-## License
-
-Copyright © 2024 Atlan Pte. Ltd.
+- [Development and Quickstart Guide](./docs/DEVELOPMENT.md)
+- This application is just an SQL application implementation of Atlan's [Python Application SDK](https://github.com/atlanhq/application-sdk)
+  - Please refer to the [examples](https://github.com/atlanhq/application-sdk/tree/main/examples) in the SDK to see how to use the SDK to build different applications on the Atlan Platform.

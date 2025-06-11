@@ -1,233 +1,287 @@
-# Oracle Enterprise Connector - Codebase Overview
+# Atlan Oracle App - Codebase Overview
 
-## Architecture Overview
+## Core Architecture
 
-The Oracle Enterprise Connector is built on Atlan's Application SDK, providing robust metadata extraction capabilities from Oracle databases. The codebase follows a modular architecture with clear separation of concerns.
+### 1. Application Components
 
-## Directory Structure
+- **FastAPI Server**: Main web application server for handling API requests
+- **Temporal**: Workflow orchestration engine for reliable metadata extraction
+- **DAPR**: Distributed application runtime for infrastructure abstraction
+- **Atlas**: Metadata store integration for entity management
+
+### 2. Directory Structure
 
 ```
-oracle-connector/
-├── app/                    # Core application code
-│   ├── activities/         # Metadata extraction activities
-│   ├── clients/           # Database connection handling
-│   ├── handlers/          # Request handlers and workflow triggers
-│   ├── transformers/      # Data transformation logic
-│   │   └── atlas/        # Atlas entity transformations
-│   └── workflows/         # Workflow definitions
-├── tests/                 # Test suite
-│   ├── unit/             # Unit tests
-│   └── integration/      # Integration tests
-├── docs/                 # Documentation
-├── .env.example         # Environment variable template
-├── pyproject.toml       # Project configuration
-└── README.md           # Project documentation
+.
+├── app/                      # Core application code
+│   ├── clients/            # Database connectivity
+│   │   └── __init__.py    # Client implementation
+│   └── sql/               # SQL query templates
+│       ├── client_version.sql
+│       ├── extract_column.sql
+│       ├── extract_database.sql
+│       ├── extract_schema.sql
+│       ├── extract_table.sql
+│       ├── filter_metadata.sql
+│       ├── tables_check.sql
+│       └── test_authentication.sql
+├── components/              # Reusable components
+├── frontend/               # Frontend assets
+├── scripts/                # Utility scripts
+├── tests/                  # Test suite
+├── .cursor/                # Cursor IDE configuration
+├── .env                    # Environment variables (gitignored)
+├── main.py                # Application entry point
+├── pyproject.toml         # Project configuration
+├── uv.lock                # Dependencies lock file
+└── README.md              # Project documentation
 ```
 
-## Core Components
+### 3. Key Components
 
-### 1. Database Client (`app/clients/`)
+#### A. Database Client (`app/clients/`)
 
-The Oracle client implementation extends `BaseSQLClient` and handles:
+- Extends BaseSQLClient from application-sdk
+- Configures Oracle connection template
+- Handles authentication (Basic, Wallet, IAM)
+- Example:
 
-- Connection pooling and management
-- Query execution and error handling
-- Oracle-specific connection parameters
-- Wallet configuration for cloud databases
+```python
+class SQLClient(BaseSQLClient):
+    """Oracle client implementation"""
 
-Key files:
+    DB_CONFIG = {
+        "template": "oracle+cx_oracle://{username}:{password}@{host}:{port}/{service_name}",
+        "required": ["username", "password", "host", "port", "service_name"],
+    }
+```
 
-- `__init__.py`: Client initialization and configuration
-- `oracle_client.py`: Oracle-specific connection handling
-- `connection_pool.py`: Connection pool management
+#### B. Activities (`app/activities/metadata_extraction/`)
 
-### 2. Metadata Activities (`app/activities/`)
+- Extends BaseSQLMetadataExtractionActivities
+- Defines Oracle-specific metadata queries
+- Implements extraction logic
+- Example:
 
-Activities for extracting different types of metadata:
+```python
+class OracleActivities(BaseSQLMetadataExtractionActivities):
+    """Activities for Oracle metadata extraction"""
 
-- Schema extraction
-- Table and view metadata
-- Column details and data types
-- Constraints and relationships
-- Stored procedures and functions
+    fetch_database_sql = """
+    SELECT SYS_CONTEXT('USERENV', 'DB_NAME') as database_name
+    FROM dual;
+    """
 
-Key files:
+    fetch_schema_sql = """
+    SELECT USERNAME as schema_name
+    FROM ALL_USERS
+    WHERE USERNAME NOT IN ('SYS', 'SYSTEM', 'OUTLN', 'DIP')
+        AND USERNAME !~ '{normalized_exclude_regex}'
+        AND USERNAME ~ '{normalized_include_regex}';
+    """
 
-- `schema_extractor.py`: Schema-level metadata extraction
-- `table_extractor.py`: Table metadata extraction
-- `column_extractor.py`: Column-level details extraction
-- `relationship_extractor.py`: Foreign key and constraint extraction
+    fetch_table_sql = """
+    SELECT OWNER, TABLE_NAME, TABLESPACE_NAME, STATUS
+    FROM ALL_TABLES
+    WHERE OWNER !~ '{normalized_exclude_regex}'
+        AND OWNER ~ '{normalized_include_regex}'
+        {temp_table_regex_sql};
+    """
+```
 
-### 3. Data Transformers (`app/transformers/`)
+#### C. Handler (`app/handlers/`)
 
-Transform Oracle metadata into Atlas entities:
+- Extends SQLHandler for workflow request handling
+- Implements preflight checks and metadata queries
+- Example:
 
-- Type mapping between Oracle and Atlas
-- Entity relationship handling
-- Custom attribute mapping
-- Classification assignment
+```python
+class OracleWorkflowHandler(SQLHandler):
+    """Handler for Oracle workflow requests"""
 
-Key files:
+    tables_check_sql = """
+    SELECT COUNT(*)
+    FROM ALL_TABLES
+    WHERE OWNER !~ '{normalized_exclude_regex}'
+        AND OWNER ~ '{normalized_include_regex}'
+        AND OWNER NOT IN ('SYS', 'SYSTEM', 'OUTLN')
+    """
 
-- `atlas/oracle_types.py`: Oracle to Atlas type mappings
-- `atlas/entity_transformer.py`: Entity transformation logic
-- `atlas/relationship_transformer.py`: Relationship handling
+    metadata_sql = """
+    SELECT USERNAME as schema_name
+    FROM ALL_USERS
+    WHERE USERNAME NOT IN ('SYS', 'SYSTEM', 'OUTLN', 'DIP')
+    """
+```
 
-### 4. Workflows (`app/workflows/`)
+#### D. Workflow (`app/workflows/metadata_extraction/`)
 
-Define metadata extraction workflows:
+- Uses BaseSQLMetadataExtractionWorkflow
+- Orchestrates metadata extraction process
+- Example:
 
-- Full extraction process
-- Incremental updates
-- Error handling and retries
-- Progress tracking
+```python
+async def setup_workflow():
+    """Setup and start the Oracle metadata extraction workflow"""
 
-Key files:
+    workflow_client = get_workflow_client(application_name="oracle")
+    await workflow_client.load()
 
-- `metadata_extraction/__init__.py`: Main extraction workflow
-- `metadata_extraction/incremental.py`: Incremental update workflow
-- `metadata_extraction/error_handler.py`: Error handling strategies
+    activities = OracleActivities(
+        sql_client_class=SQLClient,
+        handler_class=OracleWorkflowHandler
+    )
 
-### 5. Request Handlers (`app/handlers/`)
+    worker = Worker(
+        workflow_client=workflow_client,
+        workflow_classes=[BaseSQLMetadataExtractionWorkflow],
+        workflow_activities=BaseSQLMetadataExtractionWorkflow.get_activities(
+            activities
+        ),
+    )
 
-Handle incoming requests and trigger workflows:
+    workflow_args = {
+        "credentials": {
+            "authType": "basic",
+            "host": os.getenv("ORACLE_HOST", "localhost"),
+            "port": os.getenv("ORACLE_PORT", "1521"),
+            "username": os.getenv("ORACLE_USER", "system"),
+            "password": os.getenv("ORACLE_PASSWORD", "password"),
+            "service_name": os.getenv("ORACLE_SERVICE_NAME", "ORCLPDB1"),
+        },
+        "connection": {
+            "connection_name": "test-connection",
+            "connection_qualified_name": "default/oracle/1728518400",
+        },
+        "metadata": {
+            "exclude-filter": "{}",
+            "include-filter": "{}",
+            "temp-table-regex": "",
+            "extraction-method": "direct",
+            "exclude_views": "true",
+            "exclude_empty_tables": "false",
+        }
+    }
 
-- Request validation
-- Workflow orchestration
-- Response formatting
-- Error handling
+    return await workflow_client.start_workflow(
+        workflow_args,
+        BaseSQLMetadataExtractionWorkflow
+    )
+```
 
-Key files:
+### 4. Infrastructure Components
 
-- `__init__.py`: Handler registration
-- `oracle_handler.py`: Oracle-specific request handling
-- `validation.py`: Request validation logic
+#### A. Temporal
 
-## Key Features
+- **Purpose**: Workflow orchestration
+- **Features**:
+  - Workflow versioning
+  - Activity retries with backoff
+  - Workflow timeouts
+  - Progress tracking
 
-1. **Robust Connection Management**
+#### B. DAPR
 
-   - Connection pooling with configurable limits
-   - Automatic reconnection handling
-   - Support for various Oracle connection methods
-   - Oracle Wallet integration
+- **Purpose**: Infrastructure abstraction
+- **Building Blocks**:
+  - State management
+  - Secrets handling
+  - Service invocation
+  - Pub/sub messaging
 
-2. **Comprehensive Metadata Extraction**
+### 5. Key Features
 
-   - Schema-level metadata
-   - Table and view details
-   - Column properties and data types
-   - Constraints and relationships
-   - Stored procedures and functions
-   - User-defined types
+#### A. Metadata Extraction
 
-3. **Performance Optimization**
+- Extract database schema information
+- Transform to Atlas format
+- Store in object storage
+- Handle incremental updates
 
-   - Batch processing
-   - Parallel extraction
-   - Configurable batch sizes
-   - Connection pool tuning
+#### B. Authentication
 
-4. **Error Handling & Reliability**
-   - Automatic retries
-   - Transaction management
-   - Error logging and reporting
-   - Partial success handling
+- Basic authentication
+- Wallet authentication
+- IAM authentication
+- Connection pooling
 
-## Testing Strategy
+#### C. Observability
 
-1. **Unit Tests**
+- OpenTelemetry integration
+- Metrics collection
+- Distributed tracing
+- Logging
 
-   - Component-level testing
-   - Mocked database interactions
-   - Transformation logic validation
-   - Error handling verification
+### 6. Development Workflow
 
-2. **Integration Tests**
-   - End-to-end workflow testing
-   - Real database connections
-   - Data consistency validation
-   - Performance benchmarking
+#### A. Local Setup
 
-## Development Workflow
+1. Install dependencies (uv)
+2. Configure environment
+3. Start local services
+4. Run application
 
-1. **Local Development**
+#### B. Testing
 
-   ```bash
-   # Setup development environment
-   uv sync --all-groups --all-extras
-   cp .env.example .env
+- Unit tests
+- Integration tests
+- E2E tests
+- Test utilities
 
-   # Run tests
-   uv run pytest tests/unit
-   uv run pytest tests/integration
+### 7. Extending for New Databases
 
-   # Run pre-commit hooks
-   uv run pre-commit run --all-files
-   ```
+#### A. Required Components
 
-2. **Code Quality**
-   - Pre-commit hooks for code formatting
-   - Type checking with mypy
-   - Linting with flake8
-   - Security scanning with bandit
+1. Database Client
+2. SQL Queries
+3. Workflow Handler
+4. Metadata Activities
+5. Atlas Transformers
+6. Frontend Support
 
-## Configuration Management
+#### B. Implementation Steps
 
-1. **Environment Variables**
+1. Add SQLAlchemy dialect
+2. Create component structure
+3. Implement core logic
+4. Add tests
+5. Update frontend
 
-   - Database connection settings
-   - Authentication parameters
-   - Performance tuning options
-   - Logging configuration
+### 8. Best Practices
 
-2. **Runtime Configuration**
-   - Batch processing settings
-   - Connection pool parameters
-   - Retry policies
-   - Extraction filters
+#### A. Code Organization
 
-## Monitoring & Observability
+- Modular structure
+- Clear separation of concerns
+- Consistent naming
+- Documentation
 
-1. **Logging**
+#### B. Error Handling
 
-   - Structured JSON logging
-   - Configurable log levels
-   - Rotation policies
-   - Error tracking
+- Graceful degradation
+- Retry mechanisms
+- Error reporting
+- State recovery
 
-2. **Metrics**
-   - Extraction performance
-   - Connection pool stats
-   - Error rates
-   - Processing times
+#### C. Security
 
-## Security Considerations
+- Secure credential handling
+- Token management
+- Access control
+- Audit logging
 
-1. **Authentication**
+### 9. Configuration
 
-   - Secure credential handling
-   - Oracle Wallet support
-   - Role-based access control
-   - Session management
+#### A. Environment Variables
 
-2. **Data Protection**
-   - Sensitive data handling
-   - Secure connection methods
-   - Audit logging
-   - Access controls
+- Database settings
+- Authentication configs
+- Service endpoints
+- Feature flags
 
-## Future Enhancements
+#### B. Application Settings
 
-1. **Planned Features**
-
-   - Real-time change detection
-   - Advanced filtering options
-   - Custom metadata extensions
-   - Enhanced performance monitoring
-
-2. **Technical Debt**
-   - Connection pool optimization
-   - Error handling refinement
-   - Test coverage expansion
-   - Documentation updates
+- Workflow configurations
+- Activity timeouts
+- Retry policies
+- Resource limits
